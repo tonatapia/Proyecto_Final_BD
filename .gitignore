@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Archivos temporales
+*.log
+*.tmp
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Datos procesados grandes
+data/processed/
+
+# Opcional: ignora datos originales si pesan mucho
+# data/raw/
