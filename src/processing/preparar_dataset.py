@@ -13,7 +13,8 @@ from pyspark.sql.functions import (
 )
 from pyspark.sql.window import Window
 
-
+#Inicializa Spark en modo local usando todos los núcleos disponibles.
+# Se apunta al sistema de archivos local en lugar de HDFS y se suprime de logs para mantener la consola limpia.
 def crear_spark_session():
     spark = (
         SparkSession.builder
@@ -27,7 +28,9 @@ def crear_spark_session():
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
-
+#Lectura del CSV sin inferencia de tipos 
+# Se carga todo como string para poder limpiar los valores
+# antes de hacer la conversión a tipos numéricos.
 def leer_fred_md(spark, ruta_fred):
     fred = (
         spark.read
@@ -73,7 +76,9 @@ def leer_fred_md(spark, ruta_fred):
 
     return fred
 
-
+#lectura del indicador de recesión USREC
+# Este archivo contiene una columna binaria mensual (0/1)
+# que indica si el mes corresponde a una recesión oficial (NBER).
 def leer_usrec(spark, ruta_usrec):
     usrec = (
         spark.read
@@ -81,7 +86,9 @@ def leer_usrec(spark, ruta_usrec):
         .option("inferSchema", False)
         .csv(str(ruta_usrec))
     )
-
+    
+    # Se convierte observation_date a tipo date y se renombra
+    # USREC a 'recession' para mayor claridad en el dataset final.
     usrec = usrec.withColumn(
         "date",
         to_date(col("observation_date"), "yyyy-MM-dd")
@@ -97,7 +104,9 @@ def leer_usrec(spark, ruta_usrec):
 
 def preparar_dataset():
     spark = crear_spark_session()
-
+    #definición de rutas del proyecto
+    # Se resuelve la raíz del proyecto relativa a este script
+    # para que las rutas funcionen independientemente del directorio de ejecución.
     raiz = Path(__file__).resolve().parents[2]
 
     ruta_fred = raiz / "data" / "raw" / "FRED_MD.csv"
@@ -111,12 +120,16 @@ def preparar_dataset():
     salida_parquet_spark = f"file://{salida_parquet}"
     salida_csv_spark = f"file://{salida_csv}"
 
+    #carga de fuente de datos
     print("Leyendo FRED-MD...")
     fred = leer_fred_md(spark, ruta_fred_spark)
 
     print("Leyendo USREC...")
     usrec = leer_usrec(spark, ruta_usrec_spark)
-
+    
+    #unión de dataset por fecha
+    # Se hace un inner join para conservar solo los meses
+    # que existen en ambas fuentes.
     print("Uniendo datasets por fecha...")
     dataset = fred.join(usrec, on="date", how="inner").orderBy("date")
 
@@ -136,11 +149,12 @@ def preparar_dataset():
         c for c in dataset.columns
         if c not in ["date", "recession", "target_recession_3m"]
     ]
-
+    
     promedios = dataset.select(
         [avg(c).alias(c) for c in columnas_features]
     ).collect()[0].asDict()
 
+    # Se descartan columnas cuyo promedio sea null (columnas completamente vacías)
     promedios = {
         k: v for k, v in promedios.items()
         if v is not None
@@ -148,13 +162,17 @@ def preparar_dataset():
 
     dataset = dataset.fillna(promedios)
 
+    #resumen del dataset final
     print("Muestra del dataset final:")
     dataset.select(
         "date",
         "recession",
         "target_recession_3m"
     ).show(10)
-
+    
+    #persistencia del dataset procesado
+    # Se guarda en Parquet (formato columna  para Spark ML)
+    # y una copia en CSV de una sola partición para inspección manual.
     print("Columnas totales:", len(dataset.columns))
     print("Registros totales:", dataset.count())
 
